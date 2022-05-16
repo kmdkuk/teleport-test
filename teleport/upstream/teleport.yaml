@@ -1,0 +1,208 @@
+---
+# Source: teleport-cluster/templates/psp.yaml
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: teleport
+  annotations:
+    seccomp.security.alpha.kubernetes.io/allowedProfileNames: 'docker/default,runtime/default'
+    seccomp.security.alpha.kubernetes.io/defaultProfileName: 'runtime/default'
+spec:
+  privileged: false
+  allowPrivilegeEscalation: false
+  requiredDropCapabilities:
+  - ALL
+  seLinux:
+    rule: RunAsAny
+  supplementalGroups:
+    rule: MustRunAs
+    ranges:
+    # Forbid adding the root group.
+    - min: 1
+      max: 65535
+  runAsUser:
+    rule: MustRunAsNonRoot
+  fsGroup:
+    rule: MustRunAs
+    ranges:
+    # Forbid adding the root group.
+    - min: 1
+      max: 65535
+  readOnlyRootFilesystem: true
+  volumes:
+  - '*'
+  hostNetwork: false
+  hostIPC: false
+  hostPID: false
+---
+# Source: teleport-cluster/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: teleport
+  namespace: teleport
+---
+# Source: teleport-cluster/templates/clusterrole.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: teleport
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - users
+  - groups
+  - serviceaccounts
+  verbs:
+  - impersonate
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+- apiGroups:
+  - "authorization.k8s.io"
+  resources:
+  - selfsubjectaccessreviews
+  verbs:
+  - create
+---
+# Source: teleport-cluster/templates/clusterrolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: teleport
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: teleport
+subjects:
+- kind: ServiceAccount
+  name: teleport
+  namespace: teleport
+---
+# Source: teleport-cluster/templates/psp.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: teleport-psp
+rules:
+- apiGroups:
+  - policy
+  resources:
+  - podsecuritypolicies
+  verbs:
+  - use
+  resourceNames:
+  - teleport
+---
+# Source: teleport-cluster/templates/psp.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: teleport-psp
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: teleport-psp
+subjects:
+- kind: ServiceAccount
+  name: teleport
+---
+# Source: teleport-cluster/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: teleport
+  namespace: teleport
+  labels:
+    app: teleport
+spec:
+  type: NodePort
+  ports:
+  - name: https
+    port: 443
+    targetPort: 3080
+    protocol: TCP
+  - name: sshproxy
+    port: 3023
+    targetPort: 3023
+    protocol: TCP
+  - name: k8s
+    port: 3026
+    targetPort: 3026
+    protocol: TCP
+  - name: sshtun
+    port: 3024
+    targetPort: 3024
+    protocol: TCP
+  - name: mysql
+    port: 3036
+    targetPort: 3036
+    protocol: TCP
+  selector:
+    app: teleport
+---
+# Source: teleport-cluster/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: teleport
+  namespace: teleport
+  labels:
+    app: teleport
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: teleport
+  template:
+    metadata:
+      annotations:
+        # ConfigMap checksum, to recreate the pod on config changes.
+        checksum/config: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+      labels:
+        app: teleport
+    spec:
+      containers:
+      - name: "teleport"
+        image: "quay.io/gravitational/teleport:8.3.6"
+        imagePullPolicy: IfNotPresent
+        args:
+        - "--diag-addr=0.0.0.0:3000"
+        ports:
+        - name: diag
+          containerPort: 3000
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: diag
+          initialDelaySeconds: 5 # wait 5s for agent to start
+          periodSeconds: 5 # poll health every 5s
+          failureThreshold: 6 # consider agent unhealthy after 30s (6 * 5s)
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: diag
+          initialDelaySeconds: 5 # wait 5s for agent to register
+          periodSeconds: 5 # poll health every 5s
+          failureThreshold: 12 # consider agent unhealthy after 60s (12 * 5s)
+        volumeMounts:
+        - mountPath: /etc/teleport
+          name: "config"
+          readOnly: true
+        - mountPath: /var/lib/teleport
+          name: "data"
+      volumes:
+      - name: gcp-credentials
+        secret:
+          secretName: teleport-gcp-credentials
+      - name: "config"
+        configMap:
+          name: teleport
+      - name: "data"
+        emptyDir: {}
+      serviceAccountName: teleport

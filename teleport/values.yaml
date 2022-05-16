@@ -1,0 +1,31 @@
+clusterName: teleport.example.com
+strategy: RollingUpdate
+service:
+  type: NodePort
+  ports:
+    proxyweb:
+      port: 3080
+      targetPort: 3080
+      nodePort: 30080
+      protocol: TCP
+    authssh:
+      port: 3025
+      targetPort: 3025
+      nodePort: 30025
+      protocol: TCP
+    proxykube:
+      port: 3026
+      targetPort: 3026
+      nodePort: 30026
+      protocol: TCP
+    proxyssh:
+      port: 3023
+      targetPort: 3023
+      nodePort: 30023
+      protocol: TCP
+chartMode: custom
+enterprise: false
+persistence:
+  enabled: false
+tls:
+  existingSecretName: tls-web
