@@ -1,0 +1,38 @@
+# Source: teleport-cluster/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: teleport
+  namespace: teleport
+  labels:
+    app: teleport
+spec:
+  type: NodePort
+  ports:
+  - name: https
+    port: 443
+    targetPort: 3080
+    nodePort: 30080
+    protocol: TCP
+  - name: sshproxy
+    port: 3023
+    targetPort: 3023
+    nodePort: 30023
+    protocol: TCP
+  - name: k8s
+    port: 3026
+    targetPort: 3026
+    nodePort: 30026
+    protocol: TCP
+  - name: sshtun
+    port: 3024
+    targetPort: 3024
+    nodePort: 30024
+    protocol: TCP
+  - name: mysql
+    port: 3036
+    targetPort: 3036
+    nodePort: 30036
+    protocol: TCP
+  selector:
+    app: teleport

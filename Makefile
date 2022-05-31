@@ -9,6 +9,7 @@ CERT_MANAGER_VERSION = 1.8.0
 KIND := $(shell pwd)/bin/kind
 KUBECTL := $(shell pwd)/bin/kubectl
 KUSTOMIZE := $(shell pwd)/bin/kustomize
+TSH := $(shell pwd)/bin/tsh
 HELM := $(shell pwd)/bin/helm
 
 CLUSTER_NAME = teleport-test
@@ -18,8 +19,20 @@ start: $(KIND)
 	$(KIND) create cluster --name=${CLUSTER_NAME} --config cluster-config/cluster-config.yaml
 
 .PHONY: setup
-setup: $(KUSTOMIZE) $(KUBECTL) $(HELM)
+setup: $(KUSTOMIZE) $(KUBECTL) $(HELM) $(TSH)
 	$(KUSTOMIZE) build cert-manager | $(KUBECTL) apply -f -
+	$(KUBECTL) wait -n cert-manager deploy/cert-manager --for condition=available --timeout 3m
+	$(KUBECTL) wait -n cert-manager deploy/cert-manager-cainjector --for condition=available --timeout 3m
+	$(KUBECTL) wait -n cert-manager deploy/cert-manager-webhook --for condition=available --timeout 3m
+	$(KUBECTL) create namespace teleport
+	$(KUSTOMIZE) build teleport | $(KUBECTL) apply -f -
+	$(KUBECTL) wait -n teleport deploy/teleport --for condition=available --timeout 3m
+
+.PHONY: create-user
+create-user: $(KUBECTL)
+	$(eval POD := $(shell $(KUBECTL) get pod -n teleport -o jsonpath='{.items..metadata.name}'))
+	echo ${POD}
+	$(KUBECTL) exec -n teleport -it ${POD} -- tctl users add cybozu --logins=root --roles=access,editor
 
 .PHONY: stop
 stop: $(KIND)
@@ -61,7 +74,7 @@ $(KUSTOMIZE):
 $(TSH):
 	mkdir -p bin
 	wget -O bin/tsh.tar.gz https://get.gravitational.com/teleport-v${TELEPORT_VERSION}-linux-amd64-bin.tar.gz
-	tar zxf bin/tsh.tar.gz -C bin
+	tar zxf bin/tsh.tar.gz -C bin --strip-components=1 teleport/tsh
 	rm bin/tsh.tar.gz
 
 $(HELM):

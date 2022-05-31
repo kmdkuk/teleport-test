@@ -15,5 +15,5 @@ spec:
   commonName: teleport.example.com
   isCA: true
   issuerRef:
-    name: selfsigning-issuer
+    name: selfsigned-cluster-issuer
     kind: ClusterIssuer

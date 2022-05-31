@@ -1,0 +1,68 @@
+# Source: teleport-cluster/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: teleport
+  namespace: teleport
+  labels:
+    app: teleport
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: teleport
+  template:
+    metadata:
+      labels:
+        app: teleport
+    spec:
+      containers:
+      - name: "teleport"
+        image: "quay.io/gravitational/teleport:8.3.6"
+        imagePullPolicy: IfNotPresent
+        args:
+        - "--diag-addr=0.0.0.0:3000"
+        ports:
+        - name: proxyssh
+          containerPort: 3023
+        - name: proxytunnel
+          containerPort: 3024
+        - name: proxykube
+          containerPort: 3026
+        - name: proxyweb
+          containerPort: 3080
+        - name: metrics
+          containerPort: 3000
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: metrics
+          initialDelaySeconds: 5 # wait 5s for agent to start
+          periodSeconds: 5 # poll health every 5s
+          failureThreshold: 6 # consider agent unhealthy after 30s (6 * 5s)
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: metrics
+          initialDelaySeconds: 5 # wait 5s for agent to register
+          periodSeconds: 5 # poll health every 5s
+          failureThreshold: 12 # consider agent unhealthy after 60s (12 * 5s)
+        volumeMounts:
+        - mountPath: /etc/teleport
+          name: config
+          readOnly: true
+        - mountPath: /var/lib/teleport
+          name: data
+        - mountPath: /var/lib/certs
+          name: teleport-tls
+          readOnly: true
+      volumes:
+      - name: "config"
+        configMap:
+          name: teleport
+      - name: "data"
+        emptyDir: {}
+      - name: teleport-tls
+        secret:
+          secretName: tls-web
+      serviceAccountName: teleport
